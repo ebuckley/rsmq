@@ -1,0 +1,15 @@
+{
+  "name": "y",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Ersin Buckley",
+  "license": "MIT",
+  "dependencies": {
+    "rsmq": "^0.12.4",
+    "rsmq-worker": "^0.5.2"
+  }
+}
