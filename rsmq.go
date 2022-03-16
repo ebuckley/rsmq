@@ -6,30 +6,27 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-redis/redis/v8"
-	"log"
 	"math/rand"
 	"strconv"
 	"time"
 )
 
 type Message struct {
-	ID      string
+	// ID is the internal message identifier
+	ID string
+	// Message is the contents of the message
 	Message string
-	RC      int64
-	FR      time.Time
-	Sent    time.Time
-}
-
-type RedisSMQ struct {
-	cl                 *redis.Client
-	popMessageSha1     *string
-	receiveMessageSha1 *string
-	hideMessageSha1    *string
-	ns                 string
+	// RC is the number of times this message was received
+	RC int64
+	// FR is the time when this message was first received
+	FR time.Time
+	// Sent is the time when this message ws first sent
+	Sent time.Time
 }
 
 type ReceiveQueueRequestOptions struct {
 	QName string
+	// TODO implement the visibility timeout override
 }
 
 type CreateQueueRequestOptions struct {
@@ -38,11 +35,25 @@ type CreateQueueRequestOptions struct {
 type GetQueueAttributesOptions struct {
 	QName string
 }
+type DeleteQueueRequestOptions struct {
+	QName string
+}
 
 type SendMessageRequestOptions struct {
 	QName   string
 	Delay   int
 	Message string
+}
+
+type ChangeMessageVisibilityOptions struct {
+	QName                    string
+	ID                       string
+	VisibilityTimeoutSeconds int
+}
+
+type DeleteMessageRequest struct {
+	QName string
+	ID    string
 }
 
 type QueueAttributes struct {
@@ -63,6 +74,33 @@ func (q QueueAttributes) String() string {
 		return fmt.Sprintf("Could not marshal QueueAttributes: %s", err)
 	}
 	return string(marshal)
+}
+
+type PopMessageOptions struct {
+	QName string
+}
+
+type qAttr struct {
+	VisibilityTimeout int   `redis:"vt"`
+	DelayForMessages  int   `redis:"delay"`
+	MaxSizeBytes      int64 `redis:"maxsize"`
+	TimeSent          time.Time
+	UID               string
+}
+
+func (q qAttr) timeSentUnix() string {
+	return strconv.FormatInt(q.TimeSent.UnixMilli(), 10)
+}
+func (q qAttr) timeVisibilityExpiresUnix() string {
+	return strconv.FormatInt(q.TimeSent.UnixMilli()+int64(q.VisibilityTimeout*1000), 10)
+}
+
+type RedisSMQ struct {
+	cl                 *redis.Client
+	popMessageSha1     *string
+	receiveMessageSha1 *string
+	hideMessageSha1    *string
+	ns                 string
 }
 
 func (rsmq *RedisSMQ) CreateQueue(ctx context.Context, opts CreateQueueRequestOptions) error {
@@ -94,6 +132,8 @@ func (rsmq *RedisSMQ) CreateQueue(ctx context.Context, opts CreateQueueRequestOp
 	return nil
 }
 
+// ReceiveMessage receives the next message from the queue, re-entering the queue if it is not received elsewhere
+// A received message is invisible to other consumers for an amount of time
 func (rsmq *RedisSMQ) ReceiveMessage(ctx context.Context, opts ReceiveQueueRequestOptions) (*Message, error) {
 	key := rsmq.ns + ":" + opts.QName
 	q, err := rsmq.getQueue(ctx, opts.QName)
@@ -107,42 +147,8 @@ func (rsmq *RedisSMQ) ReceiveMessage(ctx context.Context, opts ReceiveQueueReque
 	if err != nil {
 		return nil, fmt.Errorf("recieve message: eval recieveMessage script: %w", err)
 	}
-	log.Println("Got message results", results)
-	if len(results) != 4 {
-		return nil, fmt.Errorf("unexpected result set, expected 4 items but got %v", results)
-	}
-	uid, ok := results[0].(string)
-	if !ok {
-		return nil, fmt.Errorf("could not serialize string type from first element")
-	}
-	msg, ok := results[1].(string)
-	if !ok {
-		return nil, fmt.Errorf("could not serialize string type from second element")
-	}
-	rc, ok := results[2].(int64)
-	if !ok {
-		return nil, fmt.Errorf("could not serialize int64 type from third element")
-	}
-	ts, ok := results[3].(int64)
-	if !ok {
-		return nil, fmt.Errorf("could not serialize timestamp int type from fourth element")
-	}
 
-	return &Message{
-		ID:      uid,
-		Message: msg,
-		RC:      rc,
-		FR:      time.UnixMilli(ts),
-		Sent:    q.TimeSent,
-	}, nil
-}
-
-type qAttr struct {
-	VisibilityTimeout int   `redis:"vt"`
-	DelayForMessages  int   `redis:"delay"`
-	MaxSizeBytes      int64 `redis:"maxsize"`
-	TimeSent          time.Time
-	UID               string
+	return unmarshalMessage(results, q)
 }
 
 func (rsmq *RedisSMQ) getQueue(ctx context.Context, name string) (*qAttr, error) {
@@ -224,6 +230,91 @@ func (rsmq *RedisSMQ) GetQueueAttributes(ctx context.Context, opts GetQueueAttri
 	return &attr, nil
 }
 
+func (rsmq *RedisSMQ) DeleteQueue(ctx context.Context, options DeleteQueueRequestOptions) error {
+	if len(options.QName) == 0 {
+		return errors.New("QName is empty")
+	}
+	key := rsmq.ns + ":" + options.QName
+	pipe := rsmq.cl.Pipeline()
+
+	pipe.Del(ctx, key)
+	pipe.SRem(ctx, rsmq.ns+":QUEUES", options.QName)
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("DeleteQueue: %w", err)
+	}
+	return nil
+}
+
+func (rsmq *RedisSMQ) DeleteMessage(ctx context.Context, options DeleteMessageRequest) error {
+	if len(options.QName) == 0 || len(options.ID) == 0 {
+		return errors.New("options.QNAME or options.ID was empty but it should not be empty")
+	}
+	key := rsmq.ns + ":" + options.QName
+	pipe := rsmq.cl.Pipeline()
+	pipe.ZRem(ctx, key, options.ID)
+	pipe.HDel(ctx, key+":Q", options.ID+":rc", options.ID+":fr")
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("deleteMessage: %w", err)
+	}
+	return nil
+}
+
+func (rsmq *RedisSMQ) ChangeMessageVisibility(ctx context.Context, options ChangeMessageVisibilityOptions) error {
+	if len(options.QName) == 0 || len(options.ID) == 0 {
+		return fmt.Errorf("ChangeMessageVisibility requires QName and ID parameters")
+	}
+	q, err := rsmq.getQueue(ctx, options.QName)
+	if err != nil {
+		return fmt.Errorf("getQueue: %w", err)
+	}
+	args := []string{
+		rsmq.ns + ":" + options.QName,
+		options.ID,
+		q.timeSentUnix(),
+		q.timeVisibilityExpiresUnix(),
+	}
+	_, err = rsmq.cl.EvalSha(ctx, *rsmq.hideMessageSha1, args).Result()
+	if err != nil {
+		return fmt.Errorf("eval hideMessageSha1: %w", err)
+	}
+	return nil
+}
+
+func (rsmq *RedisSMQ) ListQueues(ctx context.Context) ([]string, error) {
+	result, err := rsmq.cl.SMembers(ctx, rsmq.ns+":"+"QUEUES").Result()
+	return result, err
+}
+
+// PopMessage will Receive the next message from the queue and delete it.
+//
+// Important: This method deletes the message it receives right away.
+// There is no way to receive the message again if something goes wrong while working on the message.
+func (rsmq *RedisSMQ) PopMessage(ctx context.Context, options PopMessageOptions) (*Message, error) {
+	if len(options.QName) == 0 {
+		return nil, errors.New("popMessage validation failed. Expected options.QName to be set")
+	}
+	q, err := rsmq.getQueue(ctx, options.QName)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := rsmq.cl.EvalSha(ctx, *rsmq.popMessageSha1, []string{rsmq.ns + ":" + options.QName, q.timeSentUnix()}).Slice()
+	if err != nil {
+		return nil, fmt.Errorf("popMessage evalSha: %w", err)
+	}
+	return unmarshalMessage(res, q)
+}
+
+func (rsmq *RedisSMQ) SetQueueAttributes() error {
+	panic(any("not implemented"))
+}
+
+func (rsmq *RedisSMQ) Close() error {
+	return rsmq.cl.Close()
+}
+
 func (rsmq *RedisSMQ) initScripts(ctx context.Context) error {
 	popMessage := rsmq.cl.ScriptLoad(ctx, scriptPopMessage)
 	popMessageSha1, err := popMessage.Result()
@@ -264,6 +355,46 @@ func New() (*RedisSMQ, error) {
 	return rq, nil
 }
 
+func unmarshalMessage(results []interface{}, q *qAttr) (*Message, error) {
+	// an empty result set means no messages are available
+	if len(results) == 0 {
+		return nil, nil
+	}
+	if len(results) != 4 {
+		return nil, fmt.Errorf("unexpected result set, expected 4 items but got %v", results)
+	}
+	uid, ok := results[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("could not serialize string type from first element")
+	}
+	msg, ok := results[1].(string)
+	if !ok {
+		return nil, fmt.Errorf("could not serialize string type from second element")
+	}
+	rc, ok := results[2].(int64)
+	if !ok {
+		return nil, fmt.Errorf("could not serialize int64 type from third element")
+	}
+	ts, ok := results[3].(string)
+	if !ok {
+		return nil, fmt.Errorf("could not serialize timestamp string type from fourth element")
+	}
+	tsInt, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse the timestamp string: %w", err)
+	}
+
+	return &Message{
+		ID:      uid,
+		Message: msg,
+		RC:      rc,
+		FR:      time.UnixMilli(tsInt),
+		Sent:    q.TimeSent,
+	}, nil
+}
+
+// makeuid returns an ID for a string
+// TODO use cryptographic random!!
 func makeuid(n int) string {
 	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 	s := make([]rune, n)
