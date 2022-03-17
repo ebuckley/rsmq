@@ -2,16 +2,16 @@ package main
 
 import (
 	"context"
+	"github.com/ebuckley/rsmq"
 	"log"
-	"rsmq"
 )
 
 func main() {
-	q, err := rsmq.New()
+	ctx := context.Background()
+	q, err := rsmq.New(ctx, rsmq.Options{})
 	if err != nil {
 		log.Fatalln(err)
 	}
-	ctx := context.Background()
 	qname := "SimpleGOTEST"
 	err = q.CreateQueue(ctx, rsmq.CreateQueueRequestOptions{QName: qname})
 	if err != nil {
