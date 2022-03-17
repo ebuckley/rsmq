@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ main ]
 env:
-  RSMQ_URL: "redis://redis_sidecar:6379"
+  REDIS_URL: "redis://redis_sidecar:6379"
 jobs:
   test:
     runs-on: ubuntu-latest
