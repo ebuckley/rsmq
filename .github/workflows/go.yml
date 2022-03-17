@@ -22,3 +22,5 @@ jobs:
     services:
       redis_sidecar:
         image: redis
+        env:
+          REDIS_REPLICATION_MODE: master

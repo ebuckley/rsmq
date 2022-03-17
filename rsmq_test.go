@@ -2,6 +2,7 @@ package rsmq
 
 import (
 	"context"
+	"fmt"
 	"github.com/go-redis/redis/v8"
 	"log"
 	"os"
@@ -19,19 +20,19 @@ func newQ(name string) (string, *RedisSMQ, context.Context, error) {
 	}
 	opts, err := redis.ParseURL(url)
 	if err != nil {
-		return "", nil, ctx, err
+		return "", nil, ctx, fmt.Errorf("parseURL: %w", err)
 	}
 	q, err := New(ctx, Options{
 		Client: redis.NewClient(opts),
 	})
 	if err != nil {
-		return "", nil, ctx, err
+		return "", nil, ctx, fmt.Errorf("new rsmq client: %w", err)
 	}
 	err = q.CreateQueue(ctx, CreateQueueRequestOptions{QName: qname})
 	if err != nil {
-		return "", nil, ctx, err
+		return "", nil, ctx, fmt.Errorf("create Queue %s: %w", qname, err)
 	}
-	return qname, q, ctx, err
+	return qname, q, ctx, nil
 }
 func TestList(t *testing.T) {
 	_, q, ctx, err := newQ("listTest")
