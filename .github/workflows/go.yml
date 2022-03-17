@@ -16,8 +16,9 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.18
-      - name: Test
-        run: go test -v ./...
+      - run: go build .
+      - run: go vet
+      - run: go test -v ./...
     services:
       redis_sidecar:
         image: redis
