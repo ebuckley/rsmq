@@ -1,4 +1,4 @@
-module rsmq
+module github.com/ebuckley/rsmq
 
 go 1.18
 
