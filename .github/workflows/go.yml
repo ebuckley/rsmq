@@ -5,6 +5,8 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+env:
+  RSMQ_URL: "redis://redis_sidecar:6379"
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -16,3 +18,6 @@ jobs:
           go-version: 1.18
       - name: Test
         run: go test -v ./...
+    services:
+      redis_sidecar:
+        image: redis

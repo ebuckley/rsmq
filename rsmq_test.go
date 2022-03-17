@@ -2,21 +2,34 @@ package rsmq
 
 import (
 	"context"
+	"github.com/go-redis/redis/v8"
 	"log"
+	"os"
 	"testing"
 	"time"
 )
 
 func newQ(name string) (string, *RedisSMQ, context.Context, error) {
 	qname := name + makeuid(4)
-	q, err := New()
-	if err != nil {
-		log.Fatalln(err)
-	}
+
 	ctx := context.Background()
+	url := os.Getenv("REDIS_URL")
+	if len(url) == 0 {
+		url = "redis://localhost:6379"
+	}
+	opts, err := redis.ParseURL(url)
+	if err != nil {
+		return "", nil, ctx, err
+	}
+	q, err := New(ctx, Options{
+		Client: redis.NewClient(opts),
+	})
+	if err != nil {
+		return "", nil, ctx, err
+	}
 	err = q.CreateQueue(ctx, CreateQueueRequestOptions{QName: qname})
 	if err != nil {
-		log.Fatalln(err)
+		return "", nil, ctx, err
 	}
 	return qname, q, ctx, err
 }
@@ -169,6 +182,7 @@ func TestChangeMessageVisibilityMessage(t *testing.T) {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	t.Log("created first message", firstUID)
 
 	secondUID, err := q.SendMessage(ctx, SendMessageRequestOptions{
 		QName:   qname,
@@ -182,11 +196,13 @@ func TestChangeMessageVisibilityMessage(t *testing.T) {
 	err = q.ChangeMessageVisibility(ctx, ChangeMessageVisibilityOptions{
 		QName:                    qname,
 		ID:                       firstUID,
-		VisibilityTimeoutSeconds: 1,
+		VisibilityTimeoutSeconds: 2,
 	})
+
 	if err != nil {
-		log.Fatalln(err)
+		t.Fatal(err)
 	}
+	time.Sleep(500 * time.Millisecond)
 
 	message, err := q.ReceiveMessage(ctx, ReceiveQueueRequestOptions{QName: qname})
 	if err != nil {
@@ -194,7 +210,7 @@ func TestChangeMessageVisibilityMessage(t *testing.T) {
 	}
 	if message.ID == firstUID {
 		t.Log("Expected not to receive the first UID because it should be deleted")
-		t.Fail()
+		t.FailNow()
 	}
 
 	// TODO: fix this slow test that depends on sleeping..
@@ -205,7 +221,7 @@ func TestChangeMessageVisibilityMessage(t *testing.T) {
 		t.Fatalf("failed to recieve %v", err)
 	}
 	if message.ID != firstUID {
-		t.Log("Expected not to receive the first UID because it should be deleted")
+		t.Log("Expected to expected to get the ")
 		t.Fail()
 	}
 }

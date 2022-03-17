@@ -339,16 +339,31 @@ func (rsmq *RedisSMQ) initScripts(ctx context.Context) error {
 	return nil
 }
 
-// New creates the RedisSMQ with default params
-func New() (*RedisSMQ, error) {
-	cl := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
-	})
+type Options struct {
+	Client    *redis.Client
+	NameSpace *string
+}
 
-	rq := &RedisSMQ{cl: cl, ns: "rsmq"}
-	err := rq.initScripts(context.Background())
+// New creates the RedisSMQ
+func New(ctx context.Context, opts Options) (*RedisSMQ, error) {
+	var cl *redis.Client
+	if opts.Client == nil {
+		cl = redis.NewClient(&redis.Options{
+			Addr:     "localhost:6379",
+			Password: "",
+			DB:       0,
+		})
+	} else {
+		cl = opts.Client
+	}
+	var ns string
+	if opts.NameSpace != nil {
+		ns = *opts.NameSpace
+	} else {
+		ns = "rsmq"
+	}
+	rq := &RedisSMQ{cl: cl, ns: ns}
+	err := rq.initScripts(ctx)
 	if err != nil {
 		return nil, err
 	}
