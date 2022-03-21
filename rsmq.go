@@ -2,11 +2,13 @@ package rsmq
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/go-redis/redis/v8"
-	"math/rand"
+	"log"
+	"math/big"
 	"strconv"
 	"time"
 )
@@ -24,9 +26,15 @@ type Message struct {
 	Sent time.Time
 }
 
-type ReceiveQueueRequestOptions struct {
+func (m Message) String() string {
+	marshal, _ := json.Marshal(m)
+	return string(marshal)
+}
+
+type ReceiveMessageOptions struct {
 	QName string
-	// TODO implement the visibility timeout override
+	// VisibilityTimeout in seconds, how long the message will exclusively be returned
+	VisibilityTimeout *int
 }
 
 type CreateQueueRequestOptions struct {
@@ -46,9 +54,9 @@ type SendMessageRequestOptions struct {
 }
 
 type ChangeMessageVisibilityOptions struct {
-	QName                    string
-	ID                       string
-	VisibilityTimeoutSeconds int
+	QName             string
+	ID                string
+	VisibilityTimeout int
 }
 
 type DeleteMessageRequest struct {
@@ -91,8 +99,13 @@ type qAttr struct {
 func (q qAttr) timeSentUnix() string {
 	return strconv.FormatInt(q.TimeSent.UnixMilli(), 10)
 }
-func (q qAttr) timeVisibilityExpiresUnix() string {
-	return strconv.FormatInt(q.TimeSent.UnixMilli()+int64(q.VisibilityTimeout*1000), 10)
+func (q qAttr) timeVisibilityExpiresUnix(overrideVT *int) string {
+	vt := q.VisibilityTimeout
+	if overrideVT != nil {
+		vt = *overrideVT
+	}
+	newVisibilityTimeout := q.TimeSent.Add(time.Second * time.Duration(vt)).UnixMilli()
+	return strconv.FormatInt(newVisibilityTimeout, 10)
 }
 
 type RedisSMQ struct {
@@ -115,7 +128,7 @@ func (rsmq *RedisSMQ) CreateQueue(ctx context.Context, opts CreateQueueRequestOp
 	}
 	_, err = rsmq.cl.HMSet(ctx, key, map[string]interface{}{
 		"createdby": "ersin",
-		"vt":        30,
+		"vt":        30, // TODO allow this to be set with CreateQueueRequestOptions
 		"delay":     0,
 		"maxsize":   65536,
 		"created":   result,
@@ -134,14 +147,15 @@ func (rsmq *RedisSMQ) CreateQueue(ctx context.Context, opts CreateQueueRequestOp
 
 // ReceiveMessage receives the next message from the queue, re-entering the queue if it is not received elsewhere
 // A received message is invisible to other consumers for an amount of time
-func (rsmq *RedisSMQ) ReceiveMessage(ctx context.Context, opts ReceiveQueueRequestOptions) (*Message, error) {
+func (rsmq *RedisSMQ) ReceiveMessage(ctx context.Context, opts ReceiveMessageOptions) (*Message, error) {
 	key := rsmq.ns + ":" + opts.QName
 	q, err := rsmq.getQueue(ctx, opts.QName)
 	if err != nil {
 		return nil, fmt.Errorf("recieve message: %w", err)
 	}
-	timeSentUnix := strconv.FormatInt(q.TimeSent.UnixMilli(), 10)
-	timeVisibilityExpiresUnix := strconv.FormatInt(q.TimeSent.UnixMilli()+int64(q.VisibilityTimeout*1000), 10)
+
+	timeSentUnix := q.timeSentUnix()
+	timeVisibilityExpiresUnix := q.timeVisibilityExpiresUnix(opts.VisibilityTimeout)
 	// TODO -- potential panic if messageSHA1 is nil
 	results, err := rsmq.cl.EvalSha(ctx, *rsmq.receiveMessageSha1, []string{key, timeSentUnix, timeVisibilityExpiresUnix}).Slice()
 	if err != nil {
@@ -168,7 +182,7 @@ func (rsmq *RedisSMQ) getQueue(ctx context.Context, name string) (*qAttr, error)
 	}
 
 	q.TimeSent = t.Val()
-	q.UID = makeuid(22)
+	q.UID = makeUID(22)
 
 	return &q, nil
 }
@@ -261,25 +275,27 @@ func (rsmq *RedisSMQ) DeleteMessage(ctx context.Context, options DeleteMessageRe
 	return nil
 }
 
-func (rsmq *RedisSMQ) ChangeMessageVisibility(ctx context.Context, options ChangeMessageVisibilityOptions) error {
+// ChangeMessageVisibility will update the time when a message will be hidden.
+func (rsmq *RedisSMQ) ChangeMessageVisibility(ctx context.Context, options ChangeMessageVisibilityOptions) (bool, error) {
 	if len(options.QName) == 0 || len(options.ID) == 0 {
-		return fmt.Errorf("ChangeMessageVisibility requires QName and ID parameters")
+		return false, fmt.Errorf("ChangeMessageVisibility requires QName and ID parameters")
 	}
 	q, err := rsmq.getQueue(ctx, options.QName)
 	if err != nil {
-		return fmt.Errorf("getQueue: %w", err)
+		return false, fmt.Errorf("getQueue: %w", err)
 	}
+	newVT := q.timeVisibilityExpiresUnix(&options.VisibilityTimeout)
 	args := []string{
 		rsmq.ns + ":" + options.QName,
 		options.ID,
-		q.timeSentUnix(),
-		q.timeVisibilityExpiresUnix(),
+		newVT,
 	}
-	_, err = rsmq.cl.EvalSha(ctx, *rsmq.hideMessageSha1, args).Result()
+	val, err := rsmq.cl.EvalSha(ctx, *rsmq.hideMessageSha1, args).Int64()
 	if err != nil {
-		return fmt.Errorf("eval hideMessageSha1: %w", err)
+		return false, fmt.Errorf("eval hideMessageSha1: %w", err)
 	}
-	return nil
+
+	return val == 1, nil
 }
 
 func (rsmq *RedisSMQ) ListQueues(ctx context.Context) ([]string, error) {
@@ -408,54 +424,16 @@ func unmarshalMessage(results []interface{}, q *qAttr) (*Message, error) {
 	}, nil
 }
 
-// makeuid returns an ID for a string
-// TODO use cryptographic random!!
-func makeuid(n int) string {
+// makeUID returns a cryptographically random ID for a string
+func makeUID(n int) string {
 	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 	s := make([]rune, n)
 	for i := range s {
-		s[i] = letters[rand.Intn(len(letters))]
+		b, err := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
+		if err != nil {
+			log.Fatalln("Fatal error making a secure unique ID:", err)
+		}
+		s[i] = letters[b.Int64()]
 	}
 	return string(s)
 }
-
-const scriptPopMessage = `local msg = redis.call("ZRANGEBYSCORE", KEYS[1], "-inf", KEYS[2], "LIMIT", "0", "1")
-			if #msg == 0 then
-				return {}
-			end
-			redis.call("HINCRBY", KEYS[1] .. ":Q", "totalrecv", 1)
-			local mbody = redis.call("HGET", KEYS[1] .. ":Q", msg[1])
-			local rc = redis.call("HINCRBY", KEYS[1] .. ":Q", msg[1] .. ":rc", 1)
-			local o = {msg[1], mbody, rc}
-			if rc==1 then
-				table.insert(o, KEYS[2])
-			else
-				local fr = redis.call("HGET", KEYS[1] .. ":Q", msg[1] .. ":fr")
-				table.insert(o, fr)
-			end
-			redis.call("ZREM", KEYS[1], msg[1])
-			redis.call("HDEL", KEYS[1] .. ":Q", msg[1], msg[1] .. ":rc", msg[1] .. ":fr")
-			return o`
-const scriptReceiveMessage = `local msg = redis.call("ZRANGEBYSCORE", KEYS[1], "-inf", KEYS[2], "LIMIT", "0", "1")
-			if #msg == 0 then
-				return {}
-			end
-			redis.call("ZADD", KEYS[1], KEYS[3], msg[1])
-			redis.call("HINCRBY", KEYS[1] .. ":Q", "totalrecv", 1)
-			local mbody = redis.call("HGET", KEYS[1] .. ":Q", msg[1])
-			local rc = redis.call("HINCRBY", KEYS[1] .. ":Q", msg[1] .. ":rc", 1)
-			local o = {msg[1], mbody, rc}
-			if rc==1 then
-				redis.call("HSET", KEYS[1] .. ":Q", msg[1] .. ":fr", KEYS[2])
-				table.insert(o, KEYS[2])
-			else
-				local fr = redis.call("HGET", KEYS[1] .. ":Q", msg[1] .. ":fr")
-				table.insert(o, fr)
-			end
-			return o`
-const scriptChangeMessageVisibility = `local msg = redis.call("ZSCORE", KEYS[1], KEYS[2])
-			if not msg then
-				return 0
-			end
-			redis.call("ZADD", KEYS[1], KEYS[3], KEYS[2])
-			return 1`

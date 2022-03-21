@@ -33,7 +33,7 @@ func main() {
 	}
 	log.Println("Send message with uid: ", uid)
 
-	message, err := q.ReceiveMessage(ctx, rsmq.ReceiveQueueRequestOptions{QName: qname})
+	message, err := q.ReceiveMessage(ctx, rsmq.ReceiveMessageOptions{QName: qname})
 	if err != nil {
 		log.Fatalln(err)
 	}

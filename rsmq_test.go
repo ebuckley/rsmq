@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-redis/redis/v8"
-	"log"
 	"os"
 	"testing"
 	"time"
 )
 
 func newQ(name string) (string, *RedisSMQ, context.Context, error) {
-	qname := name + makeuid(4)
+	qname := name + makeUID(4)
 
 	ctx := context.Background()
 	url := os.Getenv("REDIS_URL")
@@ -35,7 +34,7 @@ func newQ(name string) (string, *RedisSMQ, context.Context, error) {
 	return qname, q, ctx, nil
 }
 func TestList(t *testing.T) {
-	_, q, ctx, err := newQ("listTest")
+	qname, q, ctx, err := newQ("listTest")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +44,7 @@ func TestList(t *testing.T) {
 	}
 	found := false
 	for _, s := range r {
-		if s == "OneMoreQueue" {
+		if s == qname {
 			found = true
 		}
 	}
@@ -116,7 +115,7 @@ func TestSimple(t *testing.T) {
 	}
 	t.Log("Send message with uid: ", uid)
 
-	message, err := q.ReceiveMessage(ctx, ReceiveQueueRequestOptions{QName: qname})
+	message, err := q.ReceiveMessage(ctx, ReceiveMessageOptions{QName: qname})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,67 +161,92 @@ func TestDeleteMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	message, err := q.ReceiveMessage(ctx, ReceiveQueueRequestOptions{QName: qname})
+	message, err := q.ReceiveMessage(ctx, ReceiveMessageOptions{QName: qname})
 	if err != nil {
 		t.Fatalf("failed to recieve %v", err)
 	}
 	if message.ID == firstUID {
-		t.Log("Expected not to receive the first UID because it should be deleted")
+		t.Log("Expected not to receive the message because it should be deleted:\n", message)
 		t.Fail()
 	}
 }
 
+// fails about 30% of the time.. why??
 func TestChangeMessageVisibilityMessage(t *testing.T) {
 	qname, q, ctx, err := newQ("TestChangevisibility")
 
+	msg, err := q.ReceiveMessage(ctx, ReceiveMessageOptions{
+		QName:             qname,
+		VisibilityTimeout: nil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg != nil {
+		t.Log("should not have returned a message on a new Q")
+		t.Fail()
+	}
+
+	ok, err := q.ChangeMessageVisibility(ctx, ChangeMessageVisibilityOptions{
+		QName:             qname,
+		ID:                "fakeUIDofMessage",
+		VisibilityTimeout: 2,
+	})
+	if ok {
+		t.Log("Message visibility should return false if the message doesn't currently exist ")
+		t.FailNow()
+	}
 	firstUID, err := q.SendMessage(ctx, SendMessageRequestOptions{
 		QName:   qname,
 		Delay:   0,
 		Message: "HELLO WORLD!",
 	})
 	if err != nil {
-		log.Fatalln(err)
-	}
-	t.Log("created first message", firstUID)
-
-	secondUID, err := q.SendMessage(ctx, SendMessageRequestOptions{
-		QName:   qname,
-		Delay:   0,
-		Message: "HELLO WORLD!",
-	})
-	t.Log("Created second message", secondUID)
-	if err != nil {
 		t.Fatalf("Failed: %v", err)
 	}
-	err = q.ChangeMessageVisibility(ctx, ChangeMessageVisibilityOptions{
-		QName:                    qname,
-		ID:                       firstUID,
-		VisibilityTimeoutSeconds: 2,
-	})
 
+	ok, err = q.ChangeMessageVisibility(ctx, ChangeMessageVisibilityOptions{
+		QName:             qname,
+		ID:                firstUID,
+		VisibilityTimeout: 10,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(500 * time.Millisecond)
-
-	message, err := q.ReceiveMessage(ctx, ReceiveQueueRequestOptions{QName: qname})
+	if !ok {
+		t.Log("Message visibility request should be successful ")
+		t.FailNow()
+	}
+	message, err := q.ReceiveMessage(ctx, ReceiveMessageOptions{QName: qname})
 	if err != nil {
 		t.Fatalf("failed to recieve %v", err)
 	}
-	if message.ID == firstUID {
-		t.Log("Expected not to receive the first UID because it should be deleted")
+	if message != nil {
+		t.Logf("It should not have returned any message first message on [%s] but we got:\n %s", qname, message)
 		t.FailNow()
 	}
 
-	// TODO: fix this slow test that depends on sleeping..
-	time.Sleep(2 * time.Second)
-	// not it should receive the hidden message from before
-	message, err = q.ReceiveMessage(ctx, ReceiveQueueRequestOptions{QName: qname})
+	// setting visibility to 0 should make the message receivable immediately
+	ok, err = q.ChangeMessageVisibility(ctx, ChangeMessageVisibilityOptions{
+		QName:             qname,
+		ID:                firstUID,
+		VisibilityTimeout: 0,
+	})
+	if err != nil {
+		t.Fatal("Did not expect to fail changing visibility", err)
+	}
+	if !ok {
+		t.Log("Message visibility request should be succesful ")
+		t.FailNow()
+	}
+	time.Sleep(50 * time.Millisecond)
+	// It should be able to request this
+	message, err = q.ReceiveMessage(ctx, ReceiveMessageOptions{QName: qname})
 	if err != nil {
 		t.Fatalf("failed to recieve %v", err)
 	}
-	if message.ID != firstUID {
-		t.Log("Expected to expected to get the ")
+	if message == nil || message.ID != firstUID {
+		t.Logf("It should have returned the first message on [%s] but we got:\n %s", qname, message)
 		t.Fail()
 	}
 }
