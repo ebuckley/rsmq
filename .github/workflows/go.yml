@@ -16,8 +16,8 @@ jobs:
         with:
           fetch-depth: 1
       - run: pwd && ls
-      - run: go build .
-      - run: go vet
+      - run: go build ./...
+      - run: go vet ./...
       - run: go test -count=10 -v ./...
     services:
       redis_sidecar:
