@@ -1,4 +1,4 @@
-package rsmq
+package q
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package rsmq
+package q
 
 import (
 	"context"
@@ -24,6 +24,9 @@ type Message struct {
 	FR time.Time
 	// Sent is the time when this message ws first sent
 	Sent time.Time
+
+	// Deadline is the time that this message Must be processed by, or nil if no deadline
+	Deadline *time.Time
 }
 
 func (m Message) String() string {
@@ -141,7 +144,6 @@ func (rsmq *RedisSMQ) CreateQueue(ctx context.Context, opts CreateQueueRequestOp
 	if err != nil {
 		return fmt.Errorf("CreateQueue: add queue to QUEUES set: %w", err)
 	}
-
 	return nil
 }
 
@@ -162,7 +164,7 @@ func (rsmq *RedisSMQ) ReceiveMessage(ctx context.Context, opts ReceiveMessageOpt
 		return nil, fmt.Errorf("recieve message: eval recieveMessage script: %w", err)
 	}
 
-	return unmarshalMessage(results, q)
+	return unmarshalMessage(results, q, opts.VisibilityTimeout)
 }
 
 func (rsmq *RedisSMQ) getQueue(ctx context.Context, name string) (*qAttr, error) {
@@ -320,7 +322,7 @@ func (rsmq *RedisSMQ) PopMessage(ctx context.Context, options PopMessageOptions)
 	if err != nil {
 		return nil, fmt.Errorf("popMessage evalSha: %w", err)
 	}
-	return unmarshalMessage(res, q)
+	return unmarshalMessage(res, q, nil)
 }
 
 func (rsmq *RedisSMQ) SetQueueAttributes() error {
@@ -386,7 +388,7 @@ func New(ctx context.Context, opts Options) (*RedisSMQ, error) {
 	return rq, nil
 }
 
-func unmarshalMessage(results []interface{}, q *qAttr) (*Message, error) {
+func unmarshalMessage(results []interface{}, q *qAttr, vt *int) (*Message, error) {
 	// an empty result set means no messages are available
 	if len(results) == 0 {
 		return nil, nil
@@ -414,13 +416,17 @@ func unmarshalMessage(results []interface{}, q *qAttr) (*Message, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not parse the timestamp string: %w", err)
 	}
-
+	if vt == nil {
+		vt = &q.VisibilityTimeout
+	}
+	deadline := q.TimeSent.Add(time.Duration(*vt) * time.Second)
 	return &Message{
-		ID:      uid,
-		Message: msg,
-		RC:      rc,
-		FR:      time.UnixMilli(tsInt),
-		Sent:    q.TimeSent,
+		ID:       uid,
+		Message:  msg,
+		RC:       rc,
+		FR:       time.UnixMilli(tsInt),
+		Sent:     q.TimeSent,
+		Deadline: &deadline,
 	}, nil
 }
 

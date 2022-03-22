@@ -1,4 +1,4 @@
-package rsmq
+package q
 
 const scriptPopMessage = `local msg = redis.call("ZRANGEBYSCORE", KEYS[1], "-inf", KEYS[2], "LIMIT", "0", "1")
 			if #msg == 0 then

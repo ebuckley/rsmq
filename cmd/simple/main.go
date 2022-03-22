@@ -2,28 +2,28 @@ package main
 
 import (
 	"context"
-	"github.com/ebuckley/rsmq"
+	"github.com/ebuckley/rsmq/q"
 	"log"
 )
 
 func main() {
 	ctx := context.Background()
-	q, err := rsmq.New(ctx, rsmq.Options{})
+	queue, err := q.New(ctx, q.Options{})
 	if err != nil {
 		log.Fatalln(err)
 	}
 	qname := "SimpleGOTEST"
-	err = q.CreateQueue(ctx, rsmq.CreateQueueRequestOptions{QName: qname})
+	err = queue.CreateQueue(ctx, q.CreateQueueRequestOptions{QName: qname})
 	if err != nil {
 		log.Fatalln(err)
 	}
-	attributes, err := q.GetQueueAttributes(ctx, rsmq.GetQueueAttributesOptions{QName: qname})
+	attributes, err := queue.GetQueueAttributes(ctx, q.GetQueueAttributesOptions{QName: qname})
 	if err != nil {
 		log.Fatalln(err)
 	}
 	log.Println("Attributes found!:\n", attributes)
 
-	uid, err := q.SendMessage(ctx, rsmq.SendMessageRequestOptions{
+	uid, err := queue.SendMessage(ctx, q.SendMessageRequestOptions{
 		QName:   qname,
 		Delay:   0,
 		Message: "HELLO WORLD!",
@@ -33,7 +33,7 @@ func main() {
 	}
 	log.Println("Send message with uid: ", uid)
 
-	message, err := q.ReceiveMessage(ctx, rsmq.ReceiveMessageOptions{QName: qname})
+	message, err := queue.ReceiveMessage(ctx, q.ReceiveMessageOptions{QName: qname})
 	if err != nil {
 		log.Fatalln(err)
 	}
