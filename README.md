@@ -48,9 +48,36 @@ type Handler interface {
 	DeadlinePassed(ctx context.Context, msg *q.Message) error
 }
 ```
+# Why RSMQ?
+
+In `$current_year` there are a whole suite of possible tools you can use for queueing, why choose this one? You might be asking. Why not kafka? Why not SQS?
+These behemoth tools fit a place, the RSMQ protocol is a small and beautiful alternative.
+
+**Simple**
+An implementation of RSMQ comes in at under 500 lines of code. You can write it in a weekend. A small matter of story points and coding. Beyond a small number of lines of code, it is simple in API surface. Your queue processing logic becomes front matter for your implementation, not being ground down in to implementation detail and framework gymnastics.
+
+**Solid base**
+This QUEUE is built on redis, we offload the guarantees of the data layer to redis. It makes the queue an obvious choice if your data layer is already built on Redis.
+
+**Exactly once delivery***
+Messages are delivered exactly once within a visibility timeout period.
+
+**Decouple services**
+Implementations of the RSMQ are so simple that you can implement them in any language in a couple of days effort. There are mature implementations for most languages. You should pick one of the following.
+
+Other implementations:
+
+- [nodejs](https://github.com/smrchy/rsmq)
+- [php](https://github.com/eislambey/php-rsmq)
+- [python](https://github.com/eislambey/php-rsmq)
+- [rust](https://github.com/eislambey/php-rsmq)
+- [c#](https://github.com/tontonrally/rsmqCsharp)
+- [java](https://github.com/igr/jrsmq)
 
 
-# Implemented
+
+
+# Progress report
 
 Progress towards API compatibility with `smrchy/rsmq`.
 
@@ -70,3 +97,5 @@ Progress towards API compatibility with `smrchy/rsmq`.
 
 - Support REALTIME
 - Implement SetQueueAttributes
+- RSMQ rest API
+- RSMQ ui
