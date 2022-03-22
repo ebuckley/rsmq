@@ -75,7 +75,11 @@ Other implementations:
 - [java](https://github.com/igr/jrsmq)
 
 
+# How it works?
 
+I wrote a short tour of the codebase [here](https://dev.to/ebuckley/rsmq-for-golang-2ej5).
+
+The implementation weighs in at less than 500 SLOC, so this is something you can read end to end in a couple hours if you please.
 
 # Progress report
 

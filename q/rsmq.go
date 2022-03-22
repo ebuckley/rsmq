@@ -123,6 +123,7 @@ func (rsmq *RedisSMQ) CreateQueue(ctx context.Context, opts CreateQueueRequestOp
 	// default vt to be 30
 	// default delay to be 0
 	// default maxsize to be 65536
+	// default maxsize to be 65536
 	key := rsmq.ns + ":" + opts.QName + ":Q"
 
 	result, err := rsmq.cl.Time(ctx).Result()
@@ -159,7 +160,10 @@ func (rsmq *RedisSMQ) ReceiveMessage(ctx context.Context, opts ReceiveMessageOpt
 	timeSentUnix := q.timeSentUnix()
 	timeVisibilityExpiresUnix := q.timeVisibilityExpiresUnix(opts.VisibilityTimeout)
 	// TODO -- potential panic if messageSHA1 is nil
-	results, err := rsmq.cl.EvalSha(ctx, *rsmq.receiveMessageSha1, []string{key, timeSentUnix, timeVisibilityExpiresUnix}).Slice()
+	results, err := rsmq.cl.EvalSha(
+		ctx,
+		*rsmq.receiveMessageSha1,
+		[]string{key, timeSentUnix, timeVisibilityExpiresUnix}).Slice()
 	if err != nil {
 		return nil, fmt.Errorf("recieve message: eval recieveMessage script: %w", err)
 	}
