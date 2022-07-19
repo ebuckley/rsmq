@@ -279,3 +279,60 @@ func TestPopMessage(t *testing.T) {
 	}
 
 }
+
+func TestSetAttributes(t *testing.T) {
+	qName, q, ctx, err := newQ("TestPopMessage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedVT := 15
+	expectedDelay := 20
+	var expectedSize int64 = 256
+	attributes, err := q.SetQueueAttributes(ctx, SetAttributesOptions{
+		VisibilityTimeout: &expectedVT,
+		DelayForMessages:  &expectedDelay,
+		Maxsize:           &expectedSize,
+		QName:             qName,
+	})
+	if err != nil {
+		t.Fatalf("Should not have failed to set attributes but got error: %s", err.Error())
+	}
+	if attributes.VisibilityTimeout != expectedVT {
+		t.Fatalf("expected visibility to = %d but returned value was = %d", expectedVT, attributes.VisibilityTimeout)
+	}
+	if attributes.DelayForMessages != expectedDelay {
+		t.Fatalf("expected delay to = %d but got %d", expectedDelay, attributes.DelayForMessages)
+	}
+	if attributes.MaxSizeBytes != expectedSize {
+		t.Fatalf("expected delay to = %d but got %d", expectedSize, attributes.MaxSizeBytes)
+	}
+
+	_ = q.DeleteQueue(ctx, DeleteQueueRequestOptions{QName: qName})
+}
+
+func TestSetQueueValidatesParams(t *testing.T) {
+	qName, q, ctx, err := newQ("TestPopMessage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = q.SetQueueAttributes(ctx, SetAttributesOptions{
+		VisibilityTimeout: nil,
+		DelayForMessages:  nil,
+		Maxsize:           nil,
+		QName:             qName,
+	})
+	if err == nil {
+		t.Fatal("Should have an error when setting attributes with no parameters provided")
+	}
+
+	var opt = 89
+	attr, err := q.SetQueueAttributes(ctx, SetAttributesOptions{
+		QName:            "bogus-shouldneverexist" + makeUID(12),
+		DelayForMessages: &opt,
+	})
+	if err == nil {
+		t.Fatal("Should return an error if the queue provided does not exist but got:", attr)
+	}
+
+	_ = q.DeleteQueue(ctx, DeleteQueueRequestOptions{QName: qName})
+}

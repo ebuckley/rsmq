@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+var QueueNotFoundError = errors.New("Queue Not Found")
+
 type Message struct {
 	// ID is the internal message identifier
 	ID string
@@ -69,7 +71,7 @@ type DeleteMessageRequest struct {
 
 type QueueAttributes struct {
 	VisibilityTimeout int    `redis:"vt"`
-	DelayForMessages  int    `redis:"Delay"`
+	DelayForMessages  int    `redis:"delay"`
 	MaxSizeBytes      int64  `redis:"maxsize"`
 	TotalReceived     int64  `redis:"totalrecv"`
 	TotalSent         int64  `redis:"totalsent"`
@@ -181,6 +183,11 @@ func (rsmq *RedisSMQ) getQueue(ctx context.Context, name string) (*qAttr, error)
 	if err != nil {
 		return nil, fmt.Errorf("getQ %s: %w", key, err)
 	}
+	resp := attr.Val()
+	if len(resp) == 0 || resp[0] == nil {
+		return nil, QueueNotFoundError
+	}
+
 	var q qAttr
 	err = attr.Scan(&q)
 	if err != nil {
@@ -236,12 +243,16 @@ func (rsmq *RedisSMQ) GetQueueAttributes(ctx context.Context, opts GetQueueAttri
 
 	_, err = pipe.Exec(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("GetQueueAttributes: %w", err)
+		return nil, fmt.Errorf("GetQueueAttributes: after exec: %w", err)
+	}
+	resp := queueAttrs.Val()
+	if len(resp) == 0 || resp[0] == nil {
+		return nil, QueueNotFoundError
 	}
 	var attr QueueAttributes
 	err = queueAttrs.Scan(&attr)
 	if err != nil {
-		return nil, fmt.Errorf("GetQueueAttributes: %w", err)
+		return nil, fmt.Errorf("GetQueueAttributes: marshal error: %w", err)
 	}
 
 	attr.CurrentN = count.Val()
@@ -329,8 +340,53 @@ func (rsmq *RedisSMQ) PopMessage(ctx context.Context, options PopMessageOptions)
 	return unmarshalMessage(res, q, nil)
 }
 
-func (rsmq *RedisSMQ) SetQueueAttributes() error {
-	panic(any("not implemented"))
+type SetAttributesOptions struct {
+	QName             string
+	DelayForMessages  *int
+	VisibilityTimeout *int
+	Maxsize           *int64
+}
+
+func (rsmq *RedisSMQ) SetQueueAttributes(ctx context.Context, options SetAttributesOptions) (*QueueAttributes, error) {
+	if len(options.QName) == 0 {
+		return nil, errors.New("QName must be provided")
+	}
+	if options.DelayForMessages == nil && options.VisibilityTimeout == nil && options.Maxsize == nil {
+		return nil, errors.New("must provide a new value for DelayForMessages, Visibility or MaxSize")
+	}
+
+	_, err := rsmq.getQueue(ctx, options.QName)
+	if err != nil {
+		return nil, err
+	}
+
+	t, err := rsmq.cl.Time(ctx).Result()
+	if err != nil {
+		return nil, fmt.Errorf("GetQueueAttributes: %w", err)
+	}
+
+	qKey := rsmq.ns + ":" + options.QName + ":" + "Q"
+	pl := rsmq.cl.Pipeline()
+	pl.HSet(ctx, qKey, "modified", t)
+	if options.DelayForMessages != nil {
+		pl.HSet(ctx, qKey, "delay", *options.DelayForMessages)
+	}
+	if options.Maxsize != nil {
+		pl.HSet(ctx, qKey, "maxsize", *options.Maxsize)
+	}
+	if options.VisibilityTimeout != nil {
+		pl.HSet(ctx, qKey, "vt", *options.VisibilityTimeout)
+	}
+	_, err = pl.Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("SetQueueAttributes: %w", err)
+	}
+
+	attributes, err := rsmq.GetQueueAttributes(ctx, GetQueueAttributesOptions{QName: options.QName})
+	if err != nil {
+		return nil, fmt.Errorf("SetQueueAttributes: afterSet: %w", err)
+	}
+	return attributes, err
 }
 
 func (rsmq *RedisSMQ) Close() error {
