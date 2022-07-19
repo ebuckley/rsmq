@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 )
 
 func main() {
@@ -87,6 +88,7 @@ func main() {
 			Attrs: attrs,
 		})
 	})
+
 	// handle a q edit
 	nr.HandleFunc("/q/{qname}/edit", func(w http.ResponseWriter, r *http.Request) {
 		vs := mux.Vars(r)
@@ -102,24 +104,44 @@ func main() {
 		}
 
 		if r.Method == http.MethodPost {
-			//qUpdate := q.SendMessageRequestOptions{
-			//    QName:   "",
-			//    Delay:   0,
-			//    Message: "",
-			//}
-			//TODO handle update mode
-			//err := queue.DeleteQueue(r.Context(), q.DeleteQueueRequestOptions{QName: qname})
-			//if err != nil {
-			//	http.Error(w, err.Error(), 500)
-			//	return
-			//}
-			//w.WriteHeader(200)
-			//// TODO
-			//fmt.Fprint(w, `
-			//    <div class='pb-8 pt-8 bg-red-300 text-center text-red-800 font-xl font-bold'>
-			//        Updated `+qname+`
-			//    </div>
-			//`)
+			qUpdate := q.SetAttributesOptions{
+				QName: qname,
+			}
+			if len(r.PostFormValue("VisibilityTimeout")) > 0 {
+				val, err := strconv.ParseInt(r.PostFormValue("VisibilityTimeout"), 10, 32)
+				if err != nil {
+					http.Error(w, err.Error(), 500)
+					return
+				}
+				i32Val := int(val)
+				qUpdate.VisibilityTimeout = &i32Val
+			}
+			if len(r.PostFormValue("Delay")) > 0 {
+				val, err := strconv.ParseInt(r.PostFormValue("Delay"), 10, 32)
+				if err != nil {
+					http.Error(w, err.Error(), 500)
+					return
+				}
+				i32Val := int(val)
+				qUpdate.DelayForMessages = &i32Val
+			}
+
+			if len(r.PostFormValue("MaxSize")) > 0 {
+				val, err := strconv.ParseInt(r.PostFormValue("MaxSize"), 10, 32)
+				if err != nil {
+					http.Error(w, err.Error(), 500)
+					return
+				}
+				qUpdate.Maxsize = &val
+			}
+
+			_, err = queue.SetQueueAttributes(r.Context(), qUpdate)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			// redirect back to the q page
+			http.Redirect(w, r, "/q/"+qname, http.StatusFound)
 			return
 		}
 

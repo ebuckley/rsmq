@@ -1,16 +1,5 @@
 {{- /*gotype: github.com/ebuckley/rsmq/cmd/qd.ConnectionDetails */ -}}
 <h1 class="text-2xl">{{.Name}}</h1>
-<div class="d-flex gap-2 pb-2">
-    <button
-        class="uppercase font-bold">
-        discard
-    </button>
-    <button
-        hx-target="#content"
-        hx-delete="/q/{{.Name}}"
-        class="uppercase bg-indigo-800 text-white font-bold p-2 rounded hover:bg-indigo-500 transition" >
-        save</button>
-</div>
 <form>
     <label for="VisibilityTimeout">Visibility Timeout</label>
     <input type="text" name= "VisibilityTimeout" value="{{.Attrs.VisibilityTimeout}}" />
@@ -18,4 +7,17 @@
     <input type="text" name= "DelayForMessages" value="{{.Attrs.DelayForMessages}}" />
     <label for="MaxSizeBytes">Max Message Size</label>
     <input type="text" name= "MaxSizeBytes" value="{{.Attrs.MaxSizeBytes}}" />
+
+    <div class="d-flex gap-2 pt-2">
+        <button
+            class="uppercase font-bold">
+            discard
+        </button>
+        <button
+            type="submit"
+            hx-target="#content"
+            hx-post="/q/{{.Name}}/edit"
+            class="uppercase bg-indigo-800 text-white font-bold p-2 rounded hover:bg-indigo-500 transition" >
+            save</button>
+    </div>
 </form>

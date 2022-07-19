@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script src="https://unpkg.com/htmx.org@1.3.3"></script>
+    <title>Grid of User</title>
+    <style>
+        table {
+            border-collapse: collapse;
+        }
+
+        td, th {
+            border: 1px solid #999;
+            padding: 0.5rem;
+            text-align: left;
+            vertical-align: middle;
+        }
+
+        tbody tr:nth-child(odd) {
+            background: #eee;
+        }
+
+        tr.htmx-swapping td {
+            opacity: 0;
+            transition: opacity 1s ease-out;
+        }
+    </style>
+</head>
+<body>
+<table>
+    <thead><tr>
+        <th> ID </th>
+        
+         <th>DateJoined</th>
+        
+         <th>Password</th>
+        
+         <th>Username</th>
+        
+        <th></th>
+    </tr></thead>
+    <tbody hx-confirm="Are you sure?" hx-target="closest tr" hx-swap="outerHTML swap:1s">
+    {{.Rows}}
+    </tbody>
+</table>
+</body>
+</html>
