@@ -14,29 +14,29 @@ package main
 
 func main() {
     queue, _ := q.New(ctx, q.Options{})
-    
+
     qname := "SimpleGOTEST"
     _ = queue.CreateQueue(ctx, q.CreateQueueRequestOptions{QName: qname})
-    
+
     attributes, _ := queue.GetQueueAttributes(ctx, q.GetQueueAttributesOptions{QName: qname})
 
     log.Println("Attributes found!:\n", attributes)
-    
+
     uid, _ := queue.SendMessage(ctx, q.SendMessageRequestOptions{
         QName:   qname,
         Message: "HELLO WORLD!",
     })
     log.Println("Sent message with uid: ", uid)
-    
+
     message, _ := queue.ReceiveMessage(ctx, q.ReceiveMessageOptions{QName: qname})
-    
+
     log.Println("Got message off the queue", message)
 }
 ```
 
 ## The worker framework
 
-Inspired by the excellent http package in go and [rsmq-worker](https://github.com/mpneuried/rsmq-worker). 
+Inspired by the excellent http package in go and [rsmq-worker](https://github.com/mpneuried/rsmq-worker).
 This allows you to easily create an async worker that consumes messages form the Queue. Importantly it provides a hook for deadline passed.
 Deadline so that you can handle a situation where a message is received twice.
 
@@ -81,6 +81,11 @@ I wrote a short tour of the codebase [here](https://dev.to/ebuckley/rsmq-for-gol
 
 The implementation weighs in at less than 500 SLOC, so this is something you can read end to end in a couple hours if you please.
 
+
+# Web ui
+
+A simplistic web interface is under development in `cmd/qd`. This will also be the source for a future json based web api for managing Queues.
+
 # Progress report
 
 Progress towards API compatibility with `smrchy/rsmq`.
@@ -88,6 +93,7 @@ Progress towards API compatibility with `smrchy/rsmq`.
 - Worker framework
 - CreateQueue
 - GetQueueAttributes
+- SetQueueAttributes
 - SendMessage
 - RecieveMessage
 - DeleteQueue
@@ -100,6 +106,4 @@ Progress towards API compatibility with `smrchy/rsmq`.
 ## TODO
 
 - Support REALTIME
-- Implement SetQueueAttributes
-- RSMQ rest API
-- RSMQ ui
+- RSMQ JSON API interface
