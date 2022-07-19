@@ -1,0 +1,37 @@
+{{- /*gotype: github.com/ebuckley/rsmq/cmd/qd.ConnectionDetails */ -}}
+<h1 class="text-2xl">{{.Name}}</h1>
+<div class="d-flex gap-2 pb-2">
+<button
+    hx-target="#content"
+    hx-delete="/q/{{.Name}}"
+    class="uppercase bg-indigo-800 text-white font-bold py-1 px-4 rounded hover:bg-indigo-500 transition" >delete</button>
+    <button
+        hx-target="#content"
+        hx-get="/q/{{.Name}}/edit"
+        class="uppercase bg-indigo-800 text-white font-bold py-1 px-4 rounded hover:bg-indigo-500 transition" >
+        edit
+    </button>
+
+</div>
+
+<dl>
+    <dt>Visibility Timeout</dt>
+    <dd>{{.Attrs.VisibilityTimeout}}</dd>
+
+    <dt>Messages Sent</dt>
+    <dd>{{.Attrs.TotalSent}}</dd>
+    <dt>Message Recv</dt>
+    <dd>{{.Attrs.TotalReceived}}</dd>
+    <dt>Delay (seconds)</dt>
+    <dd>{{.Attrs.DelayForMessages}} s</dd>
+    <dt>Messages being hidden</dt>
+    <dd>{{.Attrs.HiddenMessages}}</dd>
+    <dt>Created</dt>
+    <dd>{{prettyDate .Attrs.Created}}</dd>
+    <dt>Last Modified</dt>
+    <dd>{{prettyDate .Attrs.Modified}}</dd>
+    <dt>Max Message Size</dt>
+    <dd>{{.Attrs.MaxSizeBytes}}</dd>
+    <dt>Current N</dt>
+    <dd>{{.Attrs.CurrentN}}</dd>
+</dl>

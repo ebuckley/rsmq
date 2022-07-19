@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="tw.css"></script>
+    <script src="htmx.1.7.0.js"></script>
+    <style type="text/tailwindcss">
+        dl {
+            @apply grid gap-2 grid-cols-2;
+        }
+        dt {
+            @apply uppercase tracking-wide text-sm text-indigo-500 font-semibold;
+        }
+        dd {
+            @apply text-xl pb-2;
+        }
+    </style>
+    <title>See your RSMQ queues</title>
+</head>
+<body>
+<div class="grid gap-2 grid-cols-2 p-2 ">
+    <aside class="max-h-screen">
+        <h2 class="uppercase tracking-wide text-sm text-indigo-500 font-semibold">Queues</h2>
+        <ul>
+            {{range .Queues }}
+                <li class="pb-2"
+                    hx-get="/q/{{ . }}"
+                    hx-target="#content"
+                    hx-trigger="click">
+                    <a class="underline decoration-sky-500 cursor-pointer hover:decoration-pink-500">
+                        {{ . }}
+                    </a>
+                </li>
+            {{ end }}
+        </ul>
+    </aside>
+    <main id="content">
+        <div class="prose">
+            Welcome, you can view all connections here. There are {{  .Qcount }} available for management.
+        </div>
+    </main>
+</div>
+
+</body>
+</html>
